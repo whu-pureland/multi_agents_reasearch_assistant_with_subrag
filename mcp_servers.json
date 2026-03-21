@@ -1,0 +1,9 @@
+{
+  "servers": [
+    {
+      "name": "demo",
+      "command": ["python", "-u", "backend/mcp_servers/demo_server.py"]
+    }
+  ]
+}
+
