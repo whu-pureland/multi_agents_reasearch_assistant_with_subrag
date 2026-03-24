@@ -6,6 +6,16 @@
         <div>
           <h2 class="text-base font-semibold">任务详情</h2>
           <p class="mt-2 text-sm text-slate-700">{{ job.query }}</p>
+          <div
+            v-if="queryHint"
+            class="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            <div class="font-semibold">提示</div>
+            <div class="mt-1 whitespace-pre-wrap">{{ queryHint.message }}</div>
+            <ul v-if="queryHint.suggested_questions?.length" class="mt-2 list-disc space-y-1 pl-5 text-xs">
+              <li v-for="(q, idx) in queryHint.suggested_questions" :key="idx">{{ q }}</li>
+            </ul>
+          </div>
         </div>
         <span
           class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-white"
@@ -68,6 +78,47 @@
     </section>
 
     <section class="rounded-lg border bg-white p-5 shadow-sm">
+      <h3 class="text-sm font-semibold">提问 / 要求</h3>
+
+      <div class="mt-3 space-y-3">
+        <textarea
+          v-model="interactionText"
+          class="w-full rounded-md border px-3 py-2 text-sm outline-none focus:ring"
+          rows="4"
+          :disabled="busy"
+          placeholder="可以随时提问，或直接输入“TODO: ...”新增研究点。"
+        />
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            :disabled="busy || interactionText.trim().length === 0"
+            @click="onInteract"
+          >
+            {{ busy ? "处理中.." : "发送并解析" }}
+          </button>
+          <p v-if="interactionError" class="text-sm text-red-600">{{ interactionError }}</p>
+        </div>
+      </div>
+
+      <div v-if="chatItems.length" class="mt-4 space-y-3">
+        <div v-for="(m, idx) in chatItems" :key="idx" class="rounded-md border bg-slate-50 p-3 text-sm">
+          <div class="mb-2 text-xs font-semibold text-slate-500">
+            {{ m.role === "user" ? "You" : m.role === "assistant" ? "Assistant" : "System" }}
+          </div>
+          <div
+            v-if="m.role === 'assistant'"
+            class="prose prose-slate max-w-none text-sm"
+            v-html="renderMarkdown(m.content)"
+          ></div>
+          <div v-else class="whitespace-pre-wrap text-slate-900">{{ m.content }}</div>
+        </div>
+      </div>
+      <p v-else class="mt-3 text-sm text-slate-600">
+        报告生成中和生成后都可以随时提问/补充要求；可用 “TODO: ...” 新增研究点。
+      </p>
+    </section>
+
+    <section class="rounded-lg border bg-white p-5 shadow-sm">
       <h3 class="text-sm font-semibold">上传资料</h3>
       <ul v-if="job.uploads.length" class="mt-3 space-y-1 text-sm">
         <li v-for="u in job.uploads" :key="u.stored_path" class="font-mono text-xs text-slate-700">
@@ -105,7 +156,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import type { Job } from "../api";
-import { getJob, startJob, uploadFile } from "../api";
+import { getJob, interactJob, startJob, uploadFile } from "../api";
 import { renderMarkdown } from "../lib/markdown";
 
 const props = defineProps<{ jobId: string }>();
@@ -113,6 +164,8 @@ const props = defineProps<{ jobId: string }>();
 const job = ref<Job | null>(null);
 const busy = ref(false);
 const error = ref<string | null>(null);
+const interactionText = ref("");
+const interactionError = ref<string | null>(null);
 
 let es: EventSource | null = null;
 let pollTimer: number | null = null;
@@ -135,6 +188,35 @@ const topSources = computed(() =>
 );
 
 const recentEvents = computed(() => (job.value?.events ?? []).slice(-18).reverse());
+
+const queryHint = computed(() => {
+  const events = job.value?.events ?? [];
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i] as any;
+    if (ev?.type === "query_hint") return ev;
+  }
+  return null;
+});
+
+type ChatItem = { role: "user" | "assistant" | "system"; content: string };
+const chatItems = computed<ChatItem[]>(() => {
+  const events = job.value?.events ?? [];
+  const items: ChatItem[] = [];
+  for (const ev0 of events) {
+    const ev = ev0 as any;
+    if (ev?.type === "user_interaction") {
+      items.push({ role: "user", content: String(ev.text ?? "") });
+    } else if (ev?.type === "assistant_answer") {
+      items.push({ role: "assistant", content: String(ev.answer_md ?? "") });
+    } else if (ev?.type === "todos_updated" && ev.op === "add") {
+      const todo = ev.todo ?? {};
+      const id = String(todo.id ?? "");
+      const title = String(todo.title ?? "");
+      items.push({ role: "system", content: `已新增 TODO #${id}: ${title}`.trim() });
+    }
+  }
+  return items.slice(-20);
+});
 
 async function refresh() {
   try {
@@ -172,6 +254,21 @@ async function onFileChange(e: Event) {
   }
 }
 
+async function onInteract() {
+  const text = interactionText.value.trim();
+  if (!text) return;
+  busy.value = true;
+  interactionError.value = null;
+  try {
+    job.value = await interactJob(props.jobId, text);
+    interactionText.value = "";
+  } catch (e) {
+    interactionError.value = String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 function startSse() {
   es = new EventSource(`/api/jobs/${props.jobId}/events/stream`);
   es.onmessage = () => {
@@ -195,4 +292,3 @@ onBeforeUnmount(() => {
   es = null;
 });
 </script>
-

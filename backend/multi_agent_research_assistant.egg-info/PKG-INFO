@@ -17,6 +17,7 @@ Requires-Dist: pypdf>=4.2.0
 Requires-Dist: python-multipart>=0.0.9
 Requires-Dist: rank-bm25>=0.2.2
 Requires-Dist: duckduckgo-search>=6.3.0
+Requires-Dist: redis>=5.0.0
 Requires-Dist: uvicorn[standard]>=0.30.0
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"
@@ -48,6 +49,7 @@ FastAPI 服务，负责：
 - `POST /api/jobs`：创建任务
 - `POST /api/jobs/{job_id}/start`：启动研究（后台线程）
 - `POST /api/jobs/{job_id}/uploads`：上传资料（PDF/文本/图片）
+- `POST /api/jobs/{job_id}/interact`：随时提问/提要求（可新增 TODO、生成回答）
 - `GET /api/jobs/{job_id}/events/stream`：SSE 事件流
 - `GET /api/tools` / `POST /api/tools/reload`：MCP 工具列表与热重载
 
@@ -56,3 +58,4 @@ FastAPI 服务，负责：
 - Web Search：`WEB_SEARCH_PROVIDER=tavily` + `TAVILY_API_KEY=...`
 - LLM：`LLM_PROVIDER=openai|moonshot|deepseek` + `LLM_API_KEY/LLM_MODEL/LLM_BASE_URL`
 - Embedding（RAG）：OpenAI 兼容用 `EMBEDDING_PROVIDER=openai` + `EMBEDDING_MODEL=...`；本地模型用 `EMBEDDING_PROVIDER=local` + `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5`（可选 `EMBEDDING_DEVICE=cpu|cuda`）
+- Redis 缓存（可选）：`REDIS_URL=redis://localhost:6379/0`（可选 `REDIS_PREFIX/REDIS_JOB_TTL_SECONDS`）

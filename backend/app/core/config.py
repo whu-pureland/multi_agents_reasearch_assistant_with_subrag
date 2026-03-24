@@ -42,6 +42,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = REPO_ROOT / "data"
 
+    # Redis cache (optional)
+    redis_url: str | None = None
+    redis_prefix: str = "multi_codex"
+    redis_job_ttl_seconds: int = 3600
+
     llm_provider: str = "openai"  # openai | moonshot | deepseek | (other OpenAI-compatible)
     llm_api_key: str | None = None
     llm_base_url: str | None = None

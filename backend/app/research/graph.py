@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
 
+from app.core.storage import JobStore
 from app.research.llm import LlmClient, LlmMessage
 from app.research.rag_sub_agent import RagSubAgent
 from app.research.source_quality import aggregate_quality, score_source
@@ -50,7 +51,16 @@ async def plan_node(state: ResearchState, ctx: GraphContext) -> dict[str, Any]:
     ctx.emit({"type": "node_started", "node": "plan"})
     max_todos = int(state.get("settings", {}).get("max_todos", 8))
     llm = LlmClient()
-    todos = _fallback_plan(state["query"], max_todos=max_todos)
+    existing_todos = list(state.get("todos", []) or [])
+    already_progressed = bool(state.get("notes")) or bool(state.get("report")) or any(
+        (t.get("status") not in {None, "", "pending"}) or bool(t.get("note_id")) for t in existing_todos
+    )
+    if already_progressed and existing_todos:
+        ctx.emit({"type": "plan_skipped", "reason": "existing_progress", "count": len(existing_todos)})
+        ctx.emit({"type": "node_completed", "node": "plan"})
+        return {"todos": existing_todos}
+
+    planned = _fallback_plan(state["query"], max_todos=max_todos)
 
     if llm.available():
         prompt = (
@@ -75,7 +85,7 @@ async def plan_node(state: ResearchState, ctx: GraphContext) -> dict[str, Any]:
 
             parsed = json.loads(text)
             if isinstance(parsed, list) and parsed:
-                todos = [
+                planned = [
                     {
                         "id": str(item.get("id")),
                         "title": str(item.get("title")),
@@ -84,9 +94,25 @@ async def plan_node(state: ResearchState, ctx: GraphContext) -> dict[str, Any]:
                     }
                     for item in parsed[:max_todos]
                     if item.get("id") and item.get("title")
-                ] or todos
+                ] or planned
         except Exception:
             pass
+
+    merged_items: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    for item in [*planned, *existing_todos]:
+        title = str((item or {}).get("title") or "").strip()
+        if not title or title in seen_titles:
+            continue
+        seen_titles.add(title)
+        merged_items.append({"title": title})
+    merged_items = merged_items[:max_todos] or [{"title": t.get("title")} for t in planned[:max_todos]]
+
+    todos = [
+        {"id": str(i + 1), "title": str(it.get("title") or ""), "status": "pending", "note_id": None}
+        for i, it in enumerate(merged_items)
+        if str(it.get("title") or "").strip()
+    ]
 
     ctx.emit({"type": "plan_created", "todos": todos})
     ctx.persist({"todos": todos})
@@ -96,7 +122,13 @@ async def plan_node(state: ResearchState, ctx: GraphContext) -> dict[str, Any]:
 
 async def next_todo_node(state: ResearchState, ctx: GraphContext) -> dict[str, Any]:
     ctx.emit({"type": "node_started", "node": "next_todo"})
-    todos = state.get("todos", [])
+    todos: list[dict[str, Any]] = list(state.get("todos", []) or [])
+    try:
+        job = JobStore.default().get_job(str(state.get("job_id") or ""))
+    except Exception:
+        job = None
+    if job is not None and job.todos:
+        todos = [t.model_dump() for t in job.todos]
     for todo in todos:
         if todo.get("status") == "pending":
             todo["status"] = "in_progress"

@@ -89,3 +89,7 @@ export async function uploadFile(jobId: string, file: File): Promise<Job> {
   }
   return (await res.json()) as Job;
 }
+
+export async function interactJob(jobId: string, text: string): Promise<Job> {
+  return await http<Job>(`/api/jobs/${jobId}/interact`, { method: "POST", body: JSON.stringify({ text }) });
+}

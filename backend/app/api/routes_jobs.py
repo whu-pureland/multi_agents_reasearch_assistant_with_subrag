@@ -5,6 +5,7 @@ import threading
 from fastapi import APIRouter, HTTPException
 
 from app.core.storage import JobStore
+from app.research.query_clarity import build_query_hint_event, query_needs_clarification
 from app.research.models import JobCreateRequest, JobResponse
 from app.research.runner import run_job
 
@@ -15,6 +16,8 @@ router = APIRouter()
 def create_job(request: JobCreateRequest) -> JobResponse:
     store = JobStore.default()
     job = store.create_job(request)
+    if query_needs_clarification(job.query):
+        store.append_event(job.id, build_query_hint_event(job.query))
     return JobResponse.from_job(job)
 
 

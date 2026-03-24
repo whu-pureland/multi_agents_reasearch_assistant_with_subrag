@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar
 
+from app.core.cache import cache_get_json, cache_set_json
 from app.core.config import get_settings
 from app.research.models import Job, JobCreateRequest
 
@@ -30,6 +31,10 @@ class JobStore:
 
     def _job_path(self, job_id: str) -> Path:
         return self.root_dir / f"{job_id}.json"
+
+    @staticmethod
+    def _cache_name(job_id: str) -> str:
+        return f"job:{job_id}"
 
     @classmethod
     def _lock_for(cls, job_id: str) -> threading.RLock:
@@ -62,15 +67,26 @@ class JobStore:
             events=[],
         )
         with self._lock_for(job_id):
+            payload = job.model_dump()
             self._job_path(job_id).write_text(job.model_dump_json(indent=2), encoding="utf-8")
+            settings = get_settings()
+            cache_set_json(self._cache_name(job_id), payload, ttl_seconds=int(settings.redis_job_ttl_seconds or 0))
         return job
 
     def get_job(self, job_id: str) -> Job | None:
         path = self._job_path(job_id)
         with self._lock_for(job_id):
+            cached = cache_get_json(self._cache_name(job_id))
+            if cached is not None:
+                try:
+                    return Job.model_validate(cached)
+                except Exception:
+                    pass
             if not path.exists():
                 return None
             data = json.loads(path.read_text(encoding="utf-8"))
+            settings = get_settings()
+            cache_set_json(self._cache_name(job_id), data, ttl_seconds=int(settings.redis_job_ttl_seconds or 0))
             return Job.model_validate(data)
 
     def update_job(self, job_id: str, patch: dict[str, Any]) -> Job:
@@ -83,6 +99,12 @@ class JobStore:
             data["updated_at"] = _utc_now_iso()
             updated = Job.model_validate(data)
             self._job_path(job_id).write_text(updated.model_dump_json(indent=2), encoding="utf-8")
+            settings = get_settings()
+            cache_set_json(
+                self._cache_name(job_id),
+                updated.model_dump(),
+                ttl_seconds=int(settings.redis_job_ttl_seconds or 0),
+            )
             return updated
 
     def append_event(self, job_id: str, event: dict[str, Any], limit: int = 2000) -> None:
