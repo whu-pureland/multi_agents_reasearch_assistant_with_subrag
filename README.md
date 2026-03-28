@@ -43,6 +43,3 @@ LangGraph 状态机编排实现端到端自动化。
 - Embedding（RAG）：OpenAI 兼容用 `EMBEDDING_PROVIDER=openai` + `EMBEDDING_MODEL=...`；本地模型用 `EMBEDDING_PROVIDER=local` + `EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5`（需要安装后端依赖：`pip install -e ".[local_embedding]"`；可选 `EMBEDDING_DEVICE=cpu|cuda`）
 
 兼容性说明：Moonshot / DeepSeek 按 OpenAI 兼容接口接入，优先读取 `LLM_*`，同时保留 `OPENAI_*` 作为后备。
-=======
-# multi_agents_reasearch_assistant_with_subrag
->>>>>>> 6d1e443f449da0f897bdf0ba16c6b794b9810845
